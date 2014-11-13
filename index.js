@@ -7,17 +7,24 @@ var spawn  = (require('child_process')).spawn
 
 var Transform = stream.Transform;
 
-var tmp = function () {
-  var filePath = path.join(process.env.TMPDIR, uuid.v4());
-  if (fs.exists(filePath))
-    return tmp();
-  else
-    return filePath;
+var tmpDir = function () {
+  var dirPath = path.join(process.env.TMPDIR, uuid.v4());
+  if (fs.exists(dirPath))
+    return tmpDir();
+  
+  fs.mkdirSync(dirPath);
+  return dirPath;
 };
 
-function PassZip(pass) {
-  this._pass = pass;
-  this._bufferPath = tmp();
+function PassZip(password, filename) {
+  this._password = password;
+  
+  var _tmpDir = tmpDir();
+  var _filename = filename || 'tmp.txt';
+
+  this._bufferPath = path.join(_tmpDir, _filename);
+  this._zipPath = path.join(_tmpDir, 'tmp.zip');
+  
   this._bufferStream = fs.createWriteStream(this._bufferPath);
 
   Transform.call(this);
@@ -26,14 +33,13 @@ function PassZip(pass) {
 util.inherits(PassZip, Transform);
 
 PassZip.prototype._archive = function (cb) {
-  var zipPath = this._bufferPath + '.zip';
-  var child = spawn('zip', ['-j', '-P', this._pass, zipPath, this._bufferPath]);
+  var child = spawn('zip', ['-j', '-P', this._password, this._zipPath, this._bufferPath]);
   
   child.on('exit', function (code, signal) {
     if (code && signal) {
       return cb(new Error(signal));
     }
-    cb(null,  zipPath);
+    cb();
   });
 
   child.on('error', cb);
@@ -46,10 +52,10 @@ PassZip.prototype._transform = function (chunk, enc, cb) {
 
 PassZip.prototype._flush = function (cb) {
   var _this = this;
-  this._archive(function (err, zipPath) {
+  this._archive(function (err) {
     if (err) return cb(err);
     
-    var zipReadStream = fs.createReadStream(zipPath);
+    var zipReadStream = fs.createReadStream(_this._zipPath);
 
     zipReadStream.on('readable', function () {
       var chunk;
